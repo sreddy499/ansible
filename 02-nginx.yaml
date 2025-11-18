@@ -6,6 +6,6 @@
       name: nginx
       state: presnet
    - name: run nginx
-     ansible.builtin.service";
+     ansible.builtin.service:
        name: nginx
        state: started
