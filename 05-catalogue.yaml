@@ -1,56 +1,105 @@
-- name: catalogue
+---
+- name: Deploy Catalogue (Node.js 18)
   hosts: catalogue
   become: yes
+  gather_facts: yes
+
+  vars:
+    app_user: roboshop
+    app_dir: /app
+    service_name: catalogue
+    artifact_url: https://roboshop-builds.s3.amazonaws.com/catalogue.zip
+    artifact_path: /tmp/catalogue.zip
+
+  pre_tasks:
+    - name: Reset Node.js module (avoid stream conflicts)
+      ansible.builtin.command: dnf -y module reset nodejs
+      register: nodejs_reset
+      changed_when: "'Nothing to do' not in (nodejs_reset.stdout + nodejs_reset.stderr)"
+      args:
+        warn: false
+
+    - name: Enable Node.js 18 module stream
+      ansible.builtin.command: dnf -y module enable nodejs:18
+      register: nodejs_enable
+      changed_when: "'Nothing to do' not in (nodejs_enable.stdout + nodejs_enable.stderr)"
+      args:
+        warn: false
+
   tasks:
-  - name: disable old nodejs nad enable nodejs:18
-    ansible.builtin.shell: dnf module disable nodejs -y ;dnf module enable nodejs:18 -y
+    - name: Install Node.js
+      ansible.builtin.dnf:
+        name: nodejs
+        state: present
 
-  - name: Install nodejs
-    ansible.builtin.dnf:
-      name: nodejs
-      state: present
+    - name: Create application user
+      ansible.builtin.user:
+        name: "{{ app_user }}"
+        system: yes
+        create_home: no
 
-  - name: create roboshop user
-    ansible.builtin.user:
-      name: roboshop
+    - name: Create application directory
+      ansible.builtin.file:
+        path: "{{ app_dir }}"
+        state: directory
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        mode: "0755"
 
-  - name: create app directory
-    ansible.builtin.file:
-       path: /app
-       state: directory
+    - name: Download catalogue application
+      ansible.builtin.get_url:
+        url: "{{ artifact_url }}"
+        dest: "{{ artifact_path }}"
+        mode: "0644"
+        force: yes
 
+    - name: Extract catalogue application
+      ansible.builtin.unarchive:
+        src: "{{ artifact_path }}"
+        dest: "{{ app_dir }}"
+        remote_src: yes
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
 
-  - name: download catalogue appliation
-    ansible.builtin.get_url:
-      url: https://roboshop-builds.s3.amazonaws.com/catalogue.zip
-      dest: /tmp
+    - name: Install Node dependencies
+      ansible.builtin.command: npm install --omit=dev
+      args:
+        chdir: "{{ app_dir }}"
+        creates: "{{ app_dir }}/node_modules"
+      become_user: "{{ app_user }}"
 
-  - name: extract catalogue application
-    ansible.builtin.unarchive:
-      src: /tmp/catalogue.zip
-      dest: /app  
-      remote_src: yes
-
-  - name: Install dependencies
-    ansible.builtin.command: npm install
-      args: 
-        chdir: /app 
-
-  - name: Copy catalogue service
-    ansible.builtin.copy:
-      src: catalogue.service
-      dest: /etc/systemd/system/catalogue.service
-
-  - name: deamon reload and start
-    ansible.builtin.systemd_service:
-      deamon-reload: true
-
-  - name: Place MongoDB YUM repo file # lets start and load the data
+    - name: Install systemd unit
       ansible.builtin.copy:
-        src: mongodb.repo                 # keep this next to the playbook or in files/
+        src: catalogue.service
+        dest: "/etc/systemd/system/{{ service_name }}.service"
+        mode: "0644"
+      notify:
+        - Reload systemd
+        - Restart catalogue
+
+    - name: Ensure service is enabled and started
+      ansible.builtin.systemd:
+        name: "{{ service_name }}"
+        enabled: yes
+        state: started
+
+    - name: Place MongoDB YUM repo file (for mongo shell)
+      ansible.builtin.copy:
+        src: mongodb.repo
         dest: /etc/yum.repos.d/mongodb.repo
-  
-  - name: Install MongoDB client
-      ansible.builtin.package:
+        mode: "0644"
+
+    - name: Install MongoDB client
+      ansible.builtin.dnf:
         name: mongodb-org-shell
         state: present
+
+  handlers:
+    - name: Reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: Restart catalogue
+      ansible.builtin.systemd:
+        name: "{{ service_name }}"
+        state: restarted
