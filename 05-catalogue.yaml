@@ -1,37 +1,105 @@
 ---
-- name: Install & configure MongoDB
-  hosts: mongodb
+- name: Deploy Catalogue (Node.js 18)
+  hosts: catalogue
   become: yes
   gather_facts: yes
 
+  vars:
+    app_user: roboshop
+    app_dir: /app
+    service_name: catalogue
+    artifact_url: https://roboshop-builds.s3.amazonaws.com/catalogue.zip
+    artifact_path: /tmp/catalogue.zip
+
+  pre_tasks:
+    - name: Reset Node.js module (safe before switching streams)
+      ansible.builtin.command: dnf -y module reset nodejs
+      register: nodejs_reset
+      changed_when: "'Nothing to do' not in (nodejs_reset.stdout + nodejs_reset.stderr)"
+      args:
+        warn: false
+
+    - name: Enable Node.js 18 module stream
+      ansible.builtin.command: dnf -y module enable nodejs:18
+      register: nodejs_enable
+      changed_when: "'Nothing to do' not in (nodejs_enable.stdout + nodejs_enable.stderr)"
+      args:
+        warn: false
+
   tasks:
-    - name: Place MongoDB YUM repo file
+    - name: Install Node.js
+      ansible.builtin.dnf:
+        name: nodejs
+        state: present
+
+    - name: Create application user
+      ansible.builtin.user:
+        name: "{{ app_user }}"
+        system: yes
+        create_home: no
+
+    - name: Create application directory
+      ansible.builtin.file:
+        path: "{{ app_dir }}"
+        state: directory
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        mode: "0755"
+
+    - name: Download catalogue application
+      ansible.builtin.get_url:
+        url: "{{ artifact_url }}"
+        dest: "{{ artifact_path }}"
+        mode: "0644"
+        force: yes
+
+    - name: Extract catalogue application
+      ansible.builtin.unarchive:
+        src: "{{ artifact_path }}"
+        dest: "{{ app_dir }}"
+        remote_src: yes
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+
+    - name: Install Node dependencies
+      ansible.builtin.command: npm install --omit=dev
+      args:
+        chdir: "{{ app_dir }}"
+        creates: "{{ app_dir }}/node_modules"
+      become_user: "{{ app_user }}"
+
+    - name: Copy catalogue systemd unit
       ansible.builtin.copy:
-        src: mongodb.repo                 # keep this next to the playbook or in files/
+        src: catalogue.service
+        dest: "/etc/systemd/system/{{ service_name }}.service"
+        mode: "0644"
+      notify:
+        - Reload systemd
+        - Restart catalogue
+
+    - name: Ensure service is enabled and started
+      ansible.builtin.systemd:
+        name: "{{ service_name }}"
+        enabled: yes
+        state: started
+
+    - name: Place MongoDB YUM repo file (for mongo shell)
+      ansible.builtin.copy:
+        src: mongodb.repo
         dest: /etc/yum.repos.d/mongodb.repo
         mode: "0644"
 
-    - name: Install MongoDB
-      ansible.builtin.package:
-        name: mongodb-org
+    - name: Install MongoDB shell (for any seed scripts)
+      ansible.builtin.dnf:
+        name: mongodb-org-shell
         state: present
 
-    - name: Ensure mongod is enabled and started
-      ansible.builtin.service:
-        name: mongod
-        state: started
-        enabled: yes
-
-    - name: Allow remote connections (bind to all interfaces)
-      ansible.builtin.lineinfile:
-        path: /etc/mongod.conf
-        regexp: '^(\s*)bindIp:\s*.*$'
-        line: '\1bindIp: 0.0.0.0'
-        backrefs: yes
-      notify: Restart mongod
-
   handlers:
-    - name: Restart mongod
-      ansible.builtin.service:
-        name: mongod
+    - name: Reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: Restart catalogue
+      ansible.builtin.systemd:
+        name: "{{ service_name }}"
         state: restarted
