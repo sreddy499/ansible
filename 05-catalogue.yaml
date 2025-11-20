@@ -11,20 +11,21 @@
     artifact_url: https://roboshop-builds.s3.amazonaws.com/catalogue.zip
     artifact_path: /tmp/catalogue.zip
 
-  pre_tasks:
-    - name: Reset Node.js module (avoid stream conflicts)
+    pre_tasks:
+    - name: Reset Node.js module if supported
       ansible.builtin.command: dnf -y module reset nodejs
-      register: nodejs_reset
-      changed_when: "'Nothing to do' not in (nodejs_reset.stdout + nodejs_reset.stderr)"
-      args:
-        warn: false
+      register: reset_result
+      failed_when: reset_result.rc != 0 and ("No such command: module" not in (reset_result.stderr | default('') + reset_result.stdout | default('')))
+      changed_when: "'Nothing to do' not in (reset_result.stdout | default('') + reset_result.stderr | default(''))"
+      when: ansible_facts.pkg_mgr == 'dnf'
 
-    - name: Enable Node.js 18 module stream
+    - name: Enable Node.js 18 module if supported
       ansible.builtin.command: dnf -y module enable nodejs:18
-      register: nodejs_enable
-      changed_when: "'Nothing to do' not in (nodejs_enable.stdout + nodejs_enable.stderr)"
-      args:
-        warn: false
+      register: enable_result
+      failed_when: enable_result.rc != 0 and ("No such command: module" not in (enable_result.stderr | default('') + enable_result.stdout | default('')))
+      changed_when: "'Nothing to do' not in (enable_result.stdout | default('') + enable_result.stderr | default(''))"
+      when: ansible_facts.pkg_mgr == 'dnf'
+
 
   tasks:
     - name: Install Node.js
