@@ -19,7 +19,7 @@
      state: started
      enabled: yes     
 
-  - name: allow remote connections
+  - name: allow remote conncetions
     ansible.builtin.repalce:
       path: /etc/mongod.conf
       regexp: '127.00.1'
