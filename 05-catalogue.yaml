@@ -1,60 +1,37 @@
-- name: catalogue
-  hosts: catalogue
+---
+- name: Install & configure MongoDB
+  hosts: mongodb
   become: yes
+  gather_facts: yes
+
   tasks:
-
-  - name: disable old nodejs nad enable nodejs:18
-    ansible.builtin.shell: dnf module disable nodejs -y ;dnf module enable nodejs:18 -y
-
-
-  - name: Install nodejs
-    ansible.builtin.dnf:
-      name: nodejs
-      state: present 
-
-  - name: create roboshop user
-    ansible.builtin.user:
-      name: roboshop
-
-  - name: create app directory
-    ansible.builtin.file:
-       path: /app
-       state: directory
-
-
-  - name: download catalogue appliation
-    ansible.builtin.get_url:
-      url: https://roboshop-builds.s3.amazonaws.com/catalogue.zip
-      dest: /tmp
-
-  - name: extract catalogue application
-    ansible.builtin.unarchive:
-      src: /tmp/catalogue.zip
-      dest: /app  
-      remote_src: yes
-
-  - name: Install dependencies
-    ansible.builtin.command: npm install
-    args: 
-      chdir: /app 
-
-  - name: Copy catalogue service
-    ansible.builtin.copy:
-      src: catalogue.service
-      dest: /etc/systemd/system/catalogue.service
-
-  - name: deamon reload and start
-    ansible.builtin.systemd_service:
-      deamon-reload: true
-
-  - name: Place MongoDB YUM repo file
+    - name: Place MongoDB YUM repo file
       ansible.builtin.copy:
         src: mongodb.repo                 # keep this next to the playbook or in files/
         dest: /etc/yum.repos.d/mongodb.repo
         mode: "0644"
 
-
-  - name: Install MongoDB
+    - name: Install MongoDB
       ansible.builtin.package:
-        name: mongodb-org-shell
+        name: mongodb-org
         state: present
+
+    - name: Ensure mongod is enabled and started
+      ansible.builtin.service:
+        name: mongod
+        state: started
+        enabled: yes
+
+    - name: Allow remote connections (bind to all interfaces)
+      ansible.builtin.lineinfile:
+        path: /etc/mongod.conf
+        regexp: '^(\s*)bindIp:\s*.*$'
+        line: '\1bindIp: 0.0.0.0'
+        backrefs: yes
+      notify: Restart mongod
+
+  handlers:
+    - name: Restart mongod
+      ansible.builtin.service:
+        name: mongod
+        state: restarted
