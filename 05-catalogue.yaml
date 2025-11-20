@@ -45,12 +45,12 @@
     ansible.builtin.systemd_service:
       deamon-reload: true
 
-  - name: Place MongoDB YUM repo file
+  - name: Place MongoDB YUM repo file # lets start and load the data
       ansible.builtin.copy:
         src: mongodb.repo                 # keep this next to the playbook or in files/
         dest: /etc/yum.repos.d/mongodb.repo
   
-  - name: Install MongoDB
+  - name: Install MongoDB client
       ansible.builtin.package:
         name: mongodb-org-shell
         state: present
