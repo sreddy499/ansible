@@ -10,7 +10,7 @@
     service_name: catalogue
     artifact_url: https://roboshop-builds.s3.amazonaws.com/catalogue.zip
     artifact_path: /tmp/catalogue.zip
-    
+
   tasks:
     - name: disable old nodejs nad enable nodejs:18
       ansible.builtin.shell: dnf module disable nodejs -y ;dnf module enable nodejs:18 -y
@@ -50,11 +50,10 @@
         group: "{{ app_user }}"
 
     - name: Install Node dependencies
-      ansible.builtin.command: npm install --omit=dev
+      ansible.builtin.command: npm install
       args:
         chdir: "{{ app_dir }}"
-        creates: "{{ app_dir }}/node_modules"
-      become_user: "{{ app_user }}"
+        
 
     - name: Install systemd unit
       ansible.builtin.copy:
